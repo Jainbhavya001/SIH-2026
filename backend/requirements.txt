@@ -1,0 +1,24 @@
+# --- Web framework ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+pydantic==2.9.2
+
+# --- Imaging / CV ---
+opencv-python-headless==4.10.0.84
+Pillow==10.4.0
+numpy==1.26.4
+
+# --- OCR ---
+pytesseract==0.3.13
+# NOTE: pytesseract is a wrapper. You must also install the Tesseract-OCR
+# *binary* separately (see README "OCR setup" section) — apt/brew/choco
+# package, not a pip package.
+
+# --- Optional, stronger face verification (uncomment if you can install them) ---
+# face_recognition==1.3.0      # needs CMake + dlib; heavier install on Windows
+# insightface==0.7.3           # needs onnxruntime
+
+# --- Testing ---
+pytest==8.3.3
+httpx==0.27.2
