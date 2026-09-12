@@ -1,4 +1,4 @@
-# Sentinel — AI-Based Fake Identity & Document Screening System
+# Pehchaan — AI-Based Fake Identity & Document Screening System
 
 **SIH Problem Statement 26188** · Ministry of Home Affairs · Sashastra Seema
 Bal (SSB), Police II Division · Category: Software · Theme: Blockchain &
