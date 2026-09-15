@@ -30,9 +30,18 @@ class ELAResult:
     suspicious_region_ratio: float  # fraction of pixels above the hot threshold
     suspicious: bool
     heatmap_png: bytes | None = None  # optional visualization for the UI/report
+    # Per-pixel error map and the hot threshold, kept only when requested for
+    # region-level analysis (not serialized into the API response).
+    error_map: np.ndarray | None = None
+    hot_threshold: float = 0.0
 
 
-def run_ela(image_bytes: bytes, quality: int | None = None, generate_heatmap: bool = True) -> ELAResult:
+def run_ela(
+    image_bytes: bytes,
+    quality: int | None = None,
+    generate_heatmap: bool = True,
+    return_error_map: bool = False,
+) -> ELAResult:
     settings = get_settings()
     quality = quality or settings.ELA_JPEG_QUALITY
 
@@ -76,6 +85,8 @@ def run_ela(image_bytes: bytes, quality: int | None = None, generate_heatmap: bo
         suspicious_region_ratio=round(suspicious_region_ratio, 4),
         suspicious=suspicious,
         heatmap_png=heatmap_bytes,
+        error_map=diff if return_error_map else None,
+        hot_threshold=round(hot_threshold, 3),
     )
 
 

@@ -7,7 +7,9 @@ from fastapi import APIRouter
 
 from app.config import get_settings
 from app.modules.ocr.engine import tesseract_binary_available
-from app.modules.face.verifier import _STRONG_BACKEND
+from app.modules.face import arcface
+from app.modules.face.verifier import _DLIB_BACKEND
+from app.modules.localization.detector import get_detector
 
 router = APIRouter(prefix="/api", tags=["system"])
 
@@ -15,12 +17,19 @@ router = APIRouter(prefix="/api", tags=["system"])
 @router.get("/health")
 async def health():
     settings = get_settings()
+    localization = get_detector().status()
     return {
         "status": "ok",
         "app_name": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "engines": {
             "ocr": "tesseract" if tesseract_binary_available() else "unavailable",
-            "face_verification": "face_recognition (dlib)" if _STRONG_BACKEND else "histogram+ORB (lightweight)",
+            "face_verification": (
+                "arcface (insightface)" if arcface.is_available()
+                else "face_recognition (dlib)" if _DLIB_BACKEND
+                else "histogram+ORB (lightweight)"
+            ),
+            "localization": localization["active_backend"],
         },
+        "localization": localization,
     }

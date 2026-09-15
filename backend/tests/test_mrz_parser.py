@@ -65,3 +65,27 @@ def test_parse_mrz_detects_tampered_expiry():
 def test_parse_mrz_missing_block_returns_not_detected():
     result = parse_mrz("This is just a random block of unrelated OCR text.")
     assert result.detected is False
+
+
+def test_parse_mrz_rejects_visual_zone_false_positive():
+    """Ensure visual zone text with words like PASSPORT, SPECIMEN, NATIONALITY,
+    SURNAME, GIVEN NAME is NOT detected as an MRZ block."""
+    visual_text = (
+        "REPUBLIC OF INDIA\n"
+        "P<ASSPORT SPECIMEN NATIONALITY PASSPORT NO\n"
+        "SURNAME GIVEN NAME INDIAN X9252872 SRIVASTAVA ANIMESH KUMAR DELHI\n"
+        "DATE OF ISSUE 20/06/2023 DATE OF EXPIRY 19/06/2033"
+    )
+    result = parse_mrz(visual_text)
+    assert result.detected is False
+
+
+def test_parse_mrz_digit_normalization():
+    """Verify that common OCR letter-to-digit misreads (O, I, S, B, Z) in Line 2 date positions are normalized."""
+    noisy_line_2 = "L898902C36UTO74O8122F12O4159ZE184226B<<<<<1O"
+    raw_text = ICAO_SAMPLE_LINE_1 + "\n" + noisy_line_2
+    result = parse_mrz(raw_text)
+    assert result.detected is True
+    assert result.date_of_birth == "1974-08-12"
+    assert result.date_of_expiry == "2012-04-15"
+

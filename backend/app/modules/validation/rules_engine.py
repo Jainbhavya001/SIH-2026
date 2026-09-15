@@ -59,7 +59,53 @@ def _name_similarity(a: str | None, b: str | None) -> float:
     return SequenceMatcher(None, a.lower().strip(), b.lower().strip()).ratio()
 
 
-def validate_passport(mrz: MRZResult, visual_name: str | None = None) -> ValidationResult:
+def _char_differences(a: str, b: str) -> int:
+    if len(a) == len(b):
+        return sum(1 for x, y in zip(a, b) if x != y)
+    return max(len(a), len(b)) - int(round(SequenceMatcher(None, a, b).ratio() * max(len(a), len(b))))
+
+
+def _compare_visual_to_mrz(
+    field_name: str, label: str, mrz_value: str | None, visual_value: str | None
+) -> ValidationIssue | None:
+    """
+    Visual-zone vs MRZ consistency. A forger who edits the printed data page
+    rarely regenerates a checksum-valid MRZ to match, so a disagreement is a
+    classic alteration signal. A single-character difference is reported as
+    a warning because it is also what one OCR misread looks like.
+    """
+    if not mrz_value or not visual_value:
+        return None
+    a = mrz_value.replace("<", "").replace("-", "").upper()
+    b = visual_value.replace("<", "").replace("-", "").upper()
+    diff = _char_differences(a, b)
+    if diff == 0:
+        return None
+    if diff == 1:
+        return ValidationIssue(
+            code=f"{field_name.upper()}_MINOR_MISMATCH_MRZ_VS_VISUAL",
+            message=f"{label} in the MRZ ('{mrz_value}') differs by one character from the printed value ('{visual_value}') — likely an OCR misread, verify manually.",
+            severity="warning",
+            field=field_name,
+        )
+    return ValidationIssue(
+        code=f"{field_name.upper()}_MISMATCH_MRZ_VS_VISUAL",
+        message=f"{label} in the MRZ ('{mrz_value}') does not match the printed value ('{visual_value}'). Possible alteration of the data page.",
+        severity="critical",
+        field=field_name,
+    )
+
+
+def validate_passport(
+    mrz: MRZResult,
+    visual_name: str | None = None,
+    visual_fields: dict | None = None,
+) -> ValidationResult:
+    """
+    `visual_fields` should contain only values read from localized regions
+    (Module 0); full-page positional guesses are too unreliable to cross-check
+    against the MRZ.
+    """
     issues: list[ValidationIssue] = []
     checks = 0
 
@@ -152,6 +198,23 @@ def validate_passport(mrz: MRZResult, visual_name: str | None = None) -> Validat
             severity="critical",
             field="name",
         ))
+
+    if visual_fields:
+        mrz_passport_number = next(
+            (f.value.replace("<", "") for f in mrz.fields if f.name == "passport_number"), None
+        )
+        comparisons = [
+            ("passport_number", "Passport number", mrz_passport_number, visual_fields.get("passport_number")),
+            ("date_of_birth", "Date of birth", mrz.date_of_birth, visual_fields.get("date_of_birth")),
+            ("date_of_expiry", "Date of expiry", mrz.date_of_expiry, visual_fields.get("date_of_expiry")),
+        ]
+        for field_name, label, mrz_value, visual_value in comparisons:
+            if not mrz_value or not visual_value:
+                continue
+            checks += 1
+            issue = _compare_visual_to_mrz(field_name, label, mrz_value, visual_value)
+            if issue:
+                issues.append(issue)
 
     return _finalize(issues, checks_run=checks)
 

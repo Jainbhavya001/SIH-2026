@@ -208,7 +208,7 @@ function MRZSection({ data }: { data: ScanResponse }) {
           <div className="space-y-1.5">
             {mrz.fields.map((f) => (
               <div key={f.name} className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2">
-                <span className="text-xs text-slate-300">{f.name.replace(/_/g, " ")} check digit</span>
+                <span className="text-xs text-slate-300">{f.name.replace(/_/g, " ")}</span>
                 <span className="flex items-center gap-1.5 font-mono text-xs text-slate-400">
                   {f.value}
                   <CheckIcon valid={f.valid} />

@@ -19,18 +19,34 @@ cp .env.example .env   # optional — defaults work out of the box
 
 ### OCR setup (Module 1)
 
-`pytesseract` is a thin wrapper — it needs the actual **Tesseract-OCR
-binary** installed separately:
+The system supports **two** OCR backends — PaddleOCR (recommended for better
+structured-document accuracy) or Tesseract (classic fallback). Only one must be
+available for the scan pipeline to function; the other is optional.
 
-- **Windows**: `winget install --id UB-Mannheim.TesseractOCR -e` (accept the
-  UAC prompt), then set `TESSERACT_CMD` in `.env` to the installed
+#### PaddleOCR (preferred)
+
+1. Install the paddlepaddle wheel for your platform:
+   - Windows: `pip install paddlepaddle -i https://www.paddlepaddle.org.cn/packages/develop/`
+   - Or download the appropriate wheel from https://www.paddlepaddle.org.cn/whl
+2. Install PaddleOCR: `pip install paddlepaddleocr`
+3. Verify: `python -c "from paddleocr import PaddleOCR; ocr = PaddleOCR(lang='en', use_angle_cls=True, show_log=False); print('PaddleOCR OK')"`
+
+When PaddleOCR is available, it is used automatically (priority over Tesseract).
+
+#### Tesseract (fallback)
+
+`pytesseract` is a thin wrapper — it needs the actual **Tesseract-OCR binary**
+installed separately:
+
+- **Windows**: `winget install --id UB-Mannheim.TesseractOCR -e` (accept the UAC
+  prompt), then set `TESSERACT_CMD` in `.env` to the installed
   `tesseract.exe` path (typically `C:\Program Files\Tesseract-OCR\tesseract.exe`).
 - **macOS**: `brew install tesseract`
-- **Linux**: `sudo apt-get install tesseract-ocr`
+- **Linux**: `sudo apt-get install tesseract-oc`
 
-Without it, the API still runs — OCR-dependent fields come back empty with
-a clear warning (`ocr.warning` in the response, and the "OCR: offline"
-badge in the frontend), and every other module still works normally.
+Without either backend, the API still runs — OCR-dependent fields come back empty
+with a clear warning (`ocr.warning` in the response), and every other module
+(validation, tampering, face, risk) still works normally.
 
 ### Face verification backend (Module 4)
 

@@ -6,6 +6,10 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 *.pyc
 
+# Model weights (large binaries; distribute separately)
+backend/models/**/*.pth
+backend/models/**/*.pt
+
 # Node
 frontend/node_modules/
 frontend/dist/

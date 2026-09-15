@@ -85,34 +85,114 @@ class MRZResult:
         return bool(checks) and all(checks)
 
 
+def _clean_mrz_line1(raw: str) -> str:
+    cleaned = re.sub(r"[^A-Z0-9<]", "", raw.upper())
+    # Fix <K< or <C< misread for << separator
+    cleaned = re.sub(r"<[KC]<", "<<", cleaned)
+    if "<<" in cleaned:
+        prefix, _, given_and_fillers = cleaned.partition("<<")
+        m = re.match(r"^([A-Z<]+?)(?:[<K]{3,}|$)", given_and_fillers)
+        if m:
+            given = m.group(1).replace("K", "<")
+            cleaned = prefix + "<<" + given
+    return (cleaned + "<" * 44)[:44]
+
+
+def _clean_mrz_line2(raw: str) -> str:
+    cleaned = re.sub(r"[^A-Z0-9<]", "", raw.upper())
+    # Fix common 1ND -> IND for country code at pos 10:13
+    if len(cleaned) >= 13 and cleaned[10:13] == "1ND":
+        cleaned = cleaned[:10] + "IND" + cleaned[13:]
+
+    # Normalize common OCR letter-to-digit misreads in strictly numeric positions of Line 2:
+    # DOB: pos 13..19 (6 chars) + check digit (pos 19)
+    # Expiry: pos 21..27 (6 chars) + check digit (pos 27)
+    # Check digits at pos 9, 42, 43
+    char_list = list((cleaned + "<" * 44)[:44])
+    digit_positions = list(range(13, 20)) + list(range(21, 28)) + [9, 42, 43]
+    char_map = {"O": "0", "Q": "0", "I": "1", "L": "1", "Z": "2", "S": "5", "B": "8"}
+
+    for pos in digit_positions:
+        if pos < len(char_list) and char_list[pos] in char_map:
+            char_list[pos] = char_map[char_list[pos]]
+
+    return "".join(char_list)
+
+
+def _is_valid_td3_line1_candidate(line: str) -> bool:
+    clean = re.sub(r"[^A-Z0-9<]", "", line.upper())
+    if len(clean) < 30 or len(clean) > 55:
+        return False
+    if not clean.startswith("P"):
+        return False
+    # MRZ Line 1 must contain '<<' separator or at least 3 '<' filler characters
+    if "<<" not in clean and clean.count("<") < 3:
+        return False
+    return True
+
+
+def _is_valid_td3_line2_candidate(line: str) -> bool:
+    clean = re.sub(r"[^A-Z0-9<]", "", line.upper())
+    if len(clean) < 30 or len(clean) > 55:
+        return False
+    if clean.startswith("P<"):
+        return False
+    padded = (clean + "<" * 44)[:44]
+    # Sex character at index 20 must be M, F, X, or <
+    if padded[20] not in ("M", "F", "X", "<"):
+        return False
+    digit_like_count = sum(1 for c in clean if c.isdigit() or c in "OIZSBQ")
+    if digit_like_count < 8:
+        return False
+    return True
+
+
 def _find_td3_lines(raw_text: str) -> list[str] | None:
     """
-    Look for two 44-character MRZ lines inside noisy OCR output.
-    OCR word-splitting means the MRZ often doesn't come back as a clean
-    line, so we also try reconstructing 44-char runs from concatenated
-    uppercase/`<`/digit tokens.
+    Look for two 44-character MRZ lines inside OCR output.
+    Enforces strict structural checks to avoid matching visual-zone text.
     """
-    candidates = [
-        _clean_line(l) for l in raw_text.splitlines() if len(_clean_line(l)) >= 40
-    ]
-    candidates = [c for c in candidates if re.fullmatch(r"[A-Z0-9<]{40,44}", c)]
+    raw_lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
 
-    if len(candidates) < 2:
-        # Fall back: pull every run of MRZ-legal characters out of the whole
-        # blob and slice into 44-char windows.
-        blob = _clean_line(raw_text.replace(" ", ""))
-        runs = re.findall(r"[A-Z0-9<]{40,}", blob)
-        for run in runs:
-            if len(run) >= 88:
-                candidates = [run[:44], run[44:88]]
+    line1_candidate = None
+    line2_candidate = None
+
+    # 1. Primary: search line pairs in raw_lines
+    for i, line in enumerate(raw_lines):
+        if _is_valid_td3_line1_candidate(line):
+            line1_cand = line
+            for j in range(i + 1, min(i + 4, len(raw_lines))):
+                if _is_valid_td3_line2_candidate(raw_lines[j]):
+                    line1_candidate = line1_cand
+                    line2_candidate = raw_lines[j]
+                    break
+            if line2_candidate:
                 break
 
-    if len(candidates) < 2:
+    # 2. Fallback: regex search across raw_text if line-by-line check fails
+    if not line1_candidate or not line2_candidate:
+        m = re.search(
+            r"(P<[A-Z0-9<K]{2,}\s*<<[A-Z0-9<K\s]{15,60})\s+([A-Z0-9]{7,10}[<A-Z0-9\s]{25,60})",
+            raw_text,
+        )
+        if m:
+            l1_raw, l2_raw = m.group(1), m.group(2)
+            if _is_valid_td3_line1_candidate(l1_raw) and _is_valid_td3_line2_candidate(l2_raw):
+                line1_candidate, line2_candidate = l1_raw, l2_raw
+
+    if not line1_candidate or not line2_candidate:
         return None
 
-    # Pad/truncate to exactly 44 chars each.
-    lines = candidates[-2:]
-    return [(l + "<" * 44)[:44] for l in lines]
+    line1 = _clean_mrz_line1(line1_candidate)
+    line2 = _clean_mrz_line2(line2_candidate)
+
+    # Final structural verification of cleaned 44-character strings
+    if not line1.startswith("P") or "<" not in line1:
+        return None
+    if sum(1 for c in line2 if c.isdigit()) < 6:
+        return None
+
+    return [line1, line2]
 
 
 def parse_mrz(raw_text: str) -> MRZResult:
@@ -174,12 +254,14 @@ def parse_mrz(raw_text: str) -> MRZResult:
     except ValueError:
         composite_valid = None
 
-    def fmt_date(raw: str) -> str | None:
+    def fmt_date(raw: str, is_expiry: bool = False) -> str | None:
         if len(raw) != 6 or not raw.isdigit():
             return None
         yy, mm, dd = raw[0:2], raw[2:4], raw[4:6]
-        # Heuristic century pivot: MRZ years are 2-digit; assume 1930-2029 window.
-        century = "19" if int(yy) > 30 else "20"
+        if is_expiry:
+            century = "20"
+        else:
+            century = "19" if int(yy) > 26 else "20"
         return f"{century}{yy}-{mm}-{dd}"
 
     return MRZResult(
@@ -195,6 +277,16 @@ def parse_mrz(raw_text: str) -> MRZResult:
         warnings=warnings,
         nationality=nationality or None,
         sex=sex if sex in ("M", "F") else None,
-        date_of_birth=fmt_date(dob_raw),
-        date_of_expiry=fmt_date(expiry_raw),
+        date_of_birth=fmt_date(dob_raw, is_expiry=False),
+        date_of_expiry=fmt_date(expiry_raw, is_expiry=True),
+    )
+
+
+def mrz_quality(result: MRZResult) -> tuple[int, int, int]:
+    """Sort key for competing MRZ reads (e.g. localized crop vs full page):
+    detected first, then composite check passing, then valid check digits."""
+    return (
+        int(result.detected),
+        int(result.composite_valid is True),
+        sum(1 for f in result.fields if f.valid is True),
     )
